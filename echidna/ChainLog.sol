@@ -2,8 +2,6 @@
 
 /// ChainLog.sol - An on-chain governance-managed contract registry
 
-// Copyright (C) 2020 Maker Ecosystem Growth Holdings, INC.
-//
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
@@ -66,7 +64,7 @@ contract ChainLog {
     }
 
     /// @notice Set the "sha256sum" of some current external changelog
-    /// @dev designed to store sha256 of changelog.makerdao.com hosted log
+    /// @dev designed to store sha256
     /// @param _sha256sum The sha256 sum (optional)
     function setSha256sum(string memory _sha256sum) public auth {
         sha256sum = _sha256sum;

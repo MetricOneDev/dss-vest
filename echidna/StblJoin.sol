@@ -34,7 +34,7 @@ interface DSTokenLike {
     function burn(address,uint) external;
 }
 
-interface VatLike2 {
+interface VatLike {
     function slip(bytes32,address,int) external;
     function move(address,address,uint) external;
 }
@@ -45,8 +45,10 @@ interface VatLike2 {
     adapters here are provided as working examples:
       - `GemJoin`: For well behaved ERC20 tokens, with simple transfer
                    semantics.
-      - `ETHJoin`: For native Ether.
-      - `DaiJoin`: For connecting internal Dai balances to an external
+
+      - `CoinJoin`: For native Coin.
+
+      - `StblJoin`: For connecting internal Stbl balances to an external
                    `DSToken` implementation.
     In practice, adapter implementations will be varied and specific to
     individual collateral types, accounting for different transfer
@@ -66,7 +68,7 @@ contract GemJoin {
         _;
     }
 
-    VatLike2 public vat;   // CDP Engine
+    VatLike public vat;   // CDP Engine
     bytes32 public ilk;   // Collateral Type
     GemLike public gem;
     uint    public dec;
@@ -75,7 +77,7 @@ contract GemJoin {
     constructor(address vat_, bytes32 ilk_, address gem_) public {
         wards[msg.sender] = 1;
         live = 1;
-        vat = VatLike2(vat_);
+        vat = VatLike(vat_);
         ilk = ilk_;
         gem = GemLike(gem_);
         dec = gem.decimals();
@@ -96,25 +98,25 @@ contract GemJoin {
     }
 }
 
-contract DaiJoin {
+contract StblJoin {
     // --- Auth ---
     mapping (address => uint) public wards;
     function rely(address usr) external auth { wards[usr] = 1; }
     function deny(address usr) external auth { wards[usr] = 0; }
     modifier auth {
-        require(wards[msg.sender] == 1, "DaiJoin/not-authorized");
+        require(wards[msg.sender] == 1, "StblJoin/not-authorized");
         _;
     }
 
-    VatLike2 public vat;     // CDP Engine
-    DSTokenLike public dai;  // Stablecoin Token
+    VatLike public vat;      // CDP Engine
+    DSTokenLike public stbl;  // Stablecoin Token
     uint    public live;     // Active Flag
 
-    constructor(address vat_, address dai_) public {
+    constructor(address vat_, address stbl_) public {
         wards[msg.sender] = 1;
         live = 1;
-        vat = VatLike2(vat_);
-        dai = DSTokenLike(dai_);
+        vat = VatLike(vat_);
+        stbl = DSTokenLike(stbl_);
     }
     function cage() external auth {
         live = 0;
@@ -125,11 +127,11 @@ contract DaiJoin {
     }
     function join(address usr, uint wad) external {
         vat.move(address(this), usr, mul(ONE, wad));
-        dai.burn(msg.sender, wad);
+        stbl.burn(msg.sender, wad);
     }
     function exit(address usr, uint wad) external {
-        require(live == 1, "DaiJoin/not-live");
+        require(live == 1, "StblJoin/not-live");
         vat.move(msg.sender, address(this), mul(ONE, wad));
-        dai.mint(usr, wad);
+        stbl.mint(usr, wad);
     }
 }
