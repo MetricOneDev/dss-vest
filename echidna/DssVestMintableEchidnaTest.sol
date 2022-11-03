@@ -2,7 +2,7 @@
 
 pragma solidity 0.6.12;
 
-import {DssVestMintable} from "../src/DssVest.sol";
+import {DssVest, DssVestMintable} from "../src/DssVest.sol";
 import         {DSToken} from "./DSToken.sol";
 
 interface Hevm {
@@ -48,7 +48,7 @@ contract DssVestMintableEchidnaTest {
     bytes20 constant CHEAT_CODE = bytes20(uint160(uint256(keccak256("hevm cheat code"))));
 
     constructor() public {
-        gem = new DSToken("MKR");
+        gem = new DSToken("GOV");
         mVest = new DssVestMintable(address(gem));
         mVest.file("cap", MIN * WAD / YEAR);
         gem.setOwner(address(mVest));
@@ -162,7 +162,7 @@ contract DssVestMintableEchidnaTest {
 
     function vest(uint256 id) public {
         id = mVest.ids() == 0 ? id : id % mVest.ids();
-        Award memory award = Award({
+        DssVest.Award memory award = DssVest.Award({
             usr: mVest.usr(id),
             bgn: toUint48(mVest.bgn(id)),
             clf: toUint48(mVest.clf(id)),
@@ -188,10 +188,10 @@ contract DssVestMintableEchidnaTest {
                     assert(mVest.rxd(id) == award.tot);
                 }
                 else {
-                    assert(mVest.rxd(id) == toUint128(add(award.rxd, unpaidAmt)));
+                    assert(mVest.rxd(id) == toUint128(_add(award.rxd, unpaidAmt)));
                 }
-                assert(gem.totalSupply() == add(supplyBefore, unpaidAmt));
-                assert(gem.balanceOf(award.usr) == add(usrBalanceBefore, unpaidAmt));
+                assert(gem.totalSupply() == _add(supplyBefore, unpaidAmt));
+                assert(gem.balanceOf(award.usr) == _add(usrBalanceBefore, unpaidAmt));
             }
         } catch Error(string memory errmsg) {
             bytes32 mLocked = hevm.load(address(mVest), bytes32(uint256(4)));      // Load memory slot 0x4
@@ -215,7 +215,7 @@ contract DssVestMintableEchidnaTest {
 
     function vest_amt(uint256 id, uint256 maxAmt) public {
         id = mVest.ids() == 0 ? id : id % mVest.ids();
-        Award memory award = Award({
+        DssVest.Award memory award = DssVest.Award({
             usr: mVest.usr(id),
             bgn: toUint48(mVest.bgn(id)),
             clf: toUint48(mVest.clf(id)),
@@ -238,9 +238,9 @@ contract DssVestMintableEchidnaTest {
                 assert(gem.balanceOf(award.usr) == usrBalanceBefore);
             }
             else {
-                assert(mVest.rxd(id) == toUint128(add(award.rxd, amt)));
-                assert(gem.totalSupply() == add(supplyBefore, amt));
-                assert(gem.balanceOf(award.usr) == add(usrBalanceBefore, amt));
+                assert(mVest.rxd(id) == toUint128(_add(award.rxd, amt)));
+                assert(gem.totalSupply() == _add(supplyBefore, amt));
+                assert(gem.balanceOf(award.usr) == _add(usrBalanceBefore, amt));
             }
         } catch Error(string memory errmsg) {
             bytes32 mLocked = hevm.load(address(mVest), bytes32(uint256(4)));      // Load memory slot 0x4
@@ -315,7 +315,7 @@ contract DssVestMintableEchidnaTest {
                     assert(mVest.clf(id) == end);
                     assert(mVest.tot(id) == 0);
                 } else {
-                    assert(mVest.tot(id) == toUint128(add(unpaidAmt, rxd)));
+                    assert(mVest.tot(id) == toUint128(_add(unpaidAmt, rxd)));
                 }
             }
         } catch Error(string memory errmsg) {
@@ -356,33 +356,37 @@ contract DssVestMintableEchidnaTest {
 
     // --- Time-Based Fuzz Mutations ---
 
-    function mutlock() public clock(1 hours) {
-        // Set DssVestMintable locked slot n. 4 to override 0 with 1
-        hevm.store(address(mVest), bytes32(uint256(4)), bytes32(uint256(1)));
+    function mutlock() private clock(1 hours) {
+        bytes32 mLocked = hevm.load(address(mVest), bytes32(uint256(4)));          // Load memory slot 0x4
+        uint256 locked = uint256(mLocked) == 0 ? 1 : 0;
+        // Set DssVestMintable locked slot n. 4 to override 0 with 1 and vice versa
+        hevm.store(address(mVest), bytes32(uint256(4)), bytes32(uint256(locked)));
+        mLocked = hevm.load(address(mVest), bytes32(uint256(4)));
+        assert(uint256(mLocked) == locked);
     }
-    function mutauth() public clock(1 hours) {
+    function mutauth() private clock(1 hours) {
         uint256 wards = mVest.wards(address(this)) == 1 ? 0 : 1;
         // Set DssVestMintable wards slot n. 0 to override address(this) wards
-        hevm.store(address(mVest), keccak256(abi.encode(address(this), uint256(1))), bytes32(uint256(wards)));
+        hevm.store(address(mVest), keccak256(abi.encode(address(this), uint256(0))), bytes32(uint256(wards)));
         assert(mVest.wards(address(this)) == wards);
     }
-    function mutusr(uint256 id) public clock(1 days) {
+    function mutusr(uint256 id) private clock(1 days) {
         id = mVest.ids() == 0 ? 0 : id % mVest.ids();
         if (id == 0) return;
         _mutusr(id);
     }
     function _mutusr(uint256 id) internal {
         address usr = mVest.usr(id) == address(this) ? address(0) : address(this);
-        // Set DssVestMintable awards slot n. 2 (clf, bgn, usr) to override awards(id).usr with address(this)
-        hevm.store(address(mVest), keccak256(abi.encode(uint256(id), uint256(2))), bytesToBytes32(abi.encodePacked(uint48(mVest.clf(id)), uint48(mVest.bgn(id)), usr)));
+        // Set DssVestMintable awards slot n. 1 (clf, bgn, usr) to override awards(id).usr with address(this)
+        hevm.store(address(mVest), keccak256(abi.encode(uint256(id), uint256(1))), bytesToBytes32(abi.encodePacked(uint48(mVest.clf(id)), uint48(mVest.bgn(id)), usr)));
         assert(mVest.usr(id) == usr);
     }
-    function mutcap(uint256 bump) public clock(90 days) {
+    function mutcap(uint256 bump) private clock(90 days) {
         bump %= MAX;
         if (bump == 0) return;
         uint256 data = bump > MIN ? bump * WAD / YEAR : MIN * WAD / YEAR;
-        // Set DssVestMintable cap slot n. 4 to override cap with data
-        hevm.store(address(mVest), bytes32(uint256(4)), bytes32(uint256(data)));
+        // Set DssVestMintable cap slot n. 2 to override cap with data
+        hevm.store(address(mVest), bytes32(uint256(2)), bytes32(uint256(data)));
         assert(mVest.cap() == data);
     }
 }

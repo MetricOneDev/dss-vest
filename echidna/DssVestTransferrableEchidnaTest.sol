@@ -3,7 +3,7 @@
 pragma solidity 0.6.12;
 
 import {DssVestTransferrable} from "../src/DssVest.sol";
-import                  {Dai} from "./Dai.sol";
+import           {StableCoin} from "./StableCoin.sol";
 
 interface Hevm {
     function store(address, bytes32, bytes32) external;
@@ -21,18 +21,18 @@ struct Award {
     uint128 rxd;   // Amount of vest claimed
 }
 
-/// @dev A contract that will receive Dai, and allows for it to be retrieved.
+/// @dev A contract that will receive StableCoin, and allows for it to be retrieved.
 contract Multisig {
 
-    function approve(address dai, address vest) external {
-        Dai(dai).approve(vest, type(uint256).max);
+    function approve(address stbl, address vest) external {
+        StableCoin(stbl).approve(vest, type(uint256).max);
     }
 }
 
 contract DssVestTransferrableEchidnaTest {
 
     DssVestTransferrable internal tVest;
-    Dai internal gem;
+    StableCoin internal gem;
     Multisig internal multisig;
 
     uint256 internal constant  WAD      = 10 ** 18;
@@ -58,7 +58,7 @@ contract DssVestTransferrableEchidnaTest {
     bytes20 constant CHEAT_CODE = bytes20(uint160(uint256(keccak256("hevm cheat code"))));
 
     constructor() public {
-        gem = new Dai(1);
+        gem = new StableCoin(1);
         multisig = new Multisig();
         gem.mint(address(multisig), type(uint128).max);
         tVest = new DssVestTransferrable(address(multisig), address(gem));

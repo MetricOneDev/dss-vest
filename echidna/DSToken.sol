@@ -1,304 +1,163 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-// hevm: flattened sources of src/chief.sol
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
-pragma solidity 0.6.12;
+// Copyright (C) 2017, 2018, 2019 dbrock, rain, mrchico
 
-////// lib/ds-roles/lib/ds-auth/src/auth.sol
 // This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
+// it under the terms of the GNU Affero General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
-
+//
 // This program is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+pragma solidity >=0.5.12;
 
-/* pragma solidity >=0.4.23; */
+// FIXME: This contract was altered compared to the production version.
+// It doesn't use LibNote anymore.
+// New deployments of this contract will need to include custom events (TO DO).
 
-interface DSAuthority {
-    function canCall(
-        address src, address dst, bytes4 sig
-    ) external view returns (bool);
-}
-
-contract DSAuthEvents {
-    event LogSetAuthority (address indexed authority);
-    event LogSetOwner     (address indexed owner);
-}
-
-contract DSAuth is DSAuthEvents {
-    DSAuthority  public  authority;
-    address      public  owner;
-
-    constructor() public {
-        owner = msg.sender;
-        emit LogSetOwner(msg.sender);
-    }
-
-    function setOwner(address owner_)
-        public
-        virtual
-        auth
-    {
-        owner = owner_;
-        emit LogSetOwner(owner);
-    }
-
-    function setAuthority(DSAuthority authority_)
-        public
-        virtual
-        auth
-    {
-        authority = authority_;
-        emit LogSetAuthority(address(authority));
-    }
-
+contract StableCoin {
+    // --- Auth ---
+    mapping (address => uint) public wards;
+    function rely(address guy) external auth { wards[guy] = 1; }
+    function deny(address guy) external auth { wards[guy] = 0; }
     modifier auth {
-        require(isAuthorized(msg.sender, msg.sig), "ds-auth-unauthorized");
+        require(wards[msg.sender] == 1, "StableCoin/not-authorized");
         _;
     }
 
-    function isAuthorized(address src, bytes4 sig) internal view returns (bool) {
-        if (src == address(this)) {
-            return true;
-        } else if (src == owner) {
-            return true;
-        } else if (authority == DSAuthority(address(0))) {
-            return false;
-        } else {
-            return authority.canCall(src, address(this), sig);
-        }
-    }
-}
+    uint256 public chainId;
 
-////// lib/ds-thing/lib/ds-math/src/math.sol
-/// math.sol -- mixin for inline numerical wizardry
+    // --- ERC20 Data ---
+    string  public name     = "MetricOne Stablecoin";
+    string  public symbol   = "MONE";
+    string  public constant version  = "1";
+    uint8   public constant decimals = 18;
+    uint256 public totalSupply;
 
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-/* pragma solidity >0.4.13; */
-
-contract DSMath {
-    function add(uint x, uint y) internal pure returns (uint z) {
-        require((z = x + y) >= x, "ds-math-add-overflow");
-    }
-    function sub(uint x, uint y) internal pure returns (uint z) {
-        require((z = x - y) <= x, "ds-math-sub-underflow");
-    }
-    function mul(uint x, uint y) internal pure returns (uint z) {
-        require(y == 0 || (z = x * y) / y == x, "ds-math-mul-overflow");
-    }
-
-    function min(uint x, uint y) internal pure returns (uint z) {
-        return x <= y ? x : y;
-    }
-    function max(uint x, uint y) internal pure returns (uint z) {
-        return x >= y ? x : y;
-    }
-    function imin(int x, int y) internal pure returns (int z) {
-        return x <= y ? x : y;
-    }
-    function imax(int x, int y) internal pure returns (int z) {
-        return x >= y ? x : y;
-    }
-
-    uint constant WAD = 10 ** 18;
-    uint constant RAY = 10 ** 27;
-
-    //rounds to zero if x*y < WAD / 2
-    function wmul(uint x, uint y) internal pure returns (uint z) {
-        z = add(mul(x, y), WAD / 2) / WAD;
-    }
-    //rounds to zero if x*y < WAD / 2
-    function rmul(uint x, uint y) internal pure returns (uint z) {
-        z = add(mul(x, y), RAY / 2) / RAY;
-    }
-    //rounds to zero if x*y < WAD / 2
-    function wdiv(uint x, uint y) internal pure returns (uint z) {
-        z = add(mul(x, WAD), y / 2) / y;
-    }
-    //rounds to zero if x*y < RAY / 2
-    function rdiv(uint x, uint y) internal pure returns (uint z) {
-        z = add(mul(x, RAY), y / 2) / y;
-    }
-
-    // This famous algorithm is called "exponentiation by squaring"
-    // and calculates x^n with x as fixed-point and n as regular unsigned.
-    //
-    // It's O(log n), instead of O(n) for naive repeated multiplication.
-    //
-    // These facts are why it works:
-    //
-    //  If n is even, then x^n = (x^2)^(n/2).
-    //  If n is odd,  then x^n = x * x^(n-1),
-    //   and applying the equation for even x gives
-    //    x^n = x * (x^2)^((n-1) / 2).
-    //
-    //  Also, EVM division is flooring and
-    //    floor[(n-1) / 2] = floor[n / 2].
-    //
-    function rpow(uint x, uint n) internal pure returns (uint z) {
-        z = n % 2 != 0 ? x : RAY;
-
-        for (n /= 2; n != 0; n /= 2) {
-            x = rmul(x, x);
-
-            if (n % 2 != 0) {
-                z = rmul(z, x);
-            }
-        }
-    }
-}
-
-////// lib/ds-token/src/token.sol
-/// token.sol -- ERC20 implementation with minting and burning
-
-// Copyright (C) 2015, 2016, 2017  DappHub, LLC
-
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-/* pragma solidity >=0.4.23; */
-
-/* import "ds-math/math.sol"; */
-/* import "ds-auth/auth.sol"; */
-
-
-contract DSToken is DSMath, DSAuth {
-    bool                                              public  stopped;
-    uint256                                           public  totalSupply;
-    mapping (address => uint256)                      public  balanceOf;
-    mapping (address => mapping (address => uint256)) public  allowance;
-    bytes32                                           public  symbol;
-    uint256                                           public  decimals = 18; // standard token precision. override to customize
-    bytes32                                           public  name = "";     // Optional token name
-
-    constructor(bytes32 symbol_) public {
-        symbol = symbol_;
-    }
+    mapping (address => uint)                      public balanceOf;
+    mapping (address => mapping (address => uint)) public allowance;
+    mapping (address => uint)                      public nonces;
 
     event Approval(address indexed src, address indexed guy, uint wad);
     event Transfer(address indexed src, address indexed dst, uint wad);
-    event Mint(address indexed guy, uint wad);
-    event Burn(address indexed guy, uint wad);
-    event Stop();
-    event Start();
 
-    modifier stoppable {
-        require(!stopped, "ds-stop-is-stopped");
-        _;
+    // --- Math ---
+    function add(uint x, uint y) internal pure returns (uint z) {
+        require((z = x + y) >= x);
+    }
+    function sub(uint x, uint y) internal pure returns (uint z) {
+        require((z = x - y) <= x);
     }
 
-    function approve(address guy) external returns (bool) {
-        return approve(guy, uint(-1));
+    // --- EIP712 niceties ---
+    bytes32 public DOMAIN_SEPARATOR;
+    // bytes32 public constant PERMIT_TYPEHASH = keccak256("Permit(address holder,address spender,uint256 nonce,uint256 expiry,bool allowed)");
+    bytes32 public constant PERMIT_TYPEHASH = 0xea2aa0a1be11a07ed86d755c93467f4f82362b452371d1ba94d1715123511acb;
+
+    constructor(uint256 chainId_) public {
+        wards[msg.sender] = 1;
+        chainId = chainId_;
+        DOMAIN_SEPARATOR = keccak256(abi.encode(
+            keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+            keccak256(bytes(name)),
+            keccak256(bytes(version)),
+            chainId_,
+            address(this)
+        ));
     }
 
-    function approve(address guy, uint wad) public stoppable returns (bool) {
-        allowance[msg.sender][guy] = wad;
-
-        emit Approval(msg.sender, guy, wad);
-
-        return true;
+    function setSymbol(string memory symbol_) public auth {
+        symbol = symbol_;
     }
 
+    function setName(string memory name_) public auth {
+        name = name_;
+        DOMAIN_SEPARATOR = keccak256(abi.encode(
+            keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+            keccak256(bytes(name)),
+            keccak256(bytes(version)),
+            chainId,
+            address(this)
+        ));
+    }
+
+    // --- Token ---
     function transfer(address dst, uint wad) external returns (bool) {
         return transferFrom(msg.sender, dst, wad);
     }
-
     function transferFrom(address src, address dst, uint wad)
-        public
-        stoppable
-        returns (bool)
+        public returns (bool)
     {
+        require(balanceOf[src] >= wad, "StableCoin/insufficient-balance");
         if (src != msg.sender && allowance[src][msg.sender] != uint(-1)) {
-            require(allowance[src][msg.sender] >= wad, "ds-token-insufficient-approval");
+            require(allowance[src][msg.sender] >= wad, "StableCoin/insufficient-allowance");
             allowance[src][msg.sender] = sub(allowance[src][msg.sender], wad);
         }
-
-        require(balanceOf[src] >= wad, "ds-token-insufficient-balance");
         balanceOf[src] = sub(balanceOf[src], wad);
         balanceOf[dst] = add(balanceOf[dst], wad);
-
         emit Transfer(src, dst, wad);
-
+        return true;
+    }
+    function mint(address usr, uint wad) external auth {
+        balanceOf[usr] = add(balanceOf[usr], wad);
+        totalSupply    = add(totalSupply, wad);
+        emit Transfer(address(0), usr, wad);
+    }
+    function burn(address usr, uint wad) external {
+        require(balanceOf[usr] >= wad, "StableCoin/insufficient-balance");
+        if (usr != msg.sender && allowance[usr][msg.sender] != uint(-1)) {
+            require(allowance[usr][msg.sender] >= wad, "StableCoin/insufficient-allowance");
+            allowance[usr][msg.sender] = sub(allowance[usr][msg.sender], wad);
+        }
+        balanceOf[usr] = sub(balanceOf[usr], wad);
+        totalSupply    = sub(totalSupply, wad);
+        emit Transfer(usr, address(0), wad);
+    }
+    function approve(address usr, uint wad) external returns (bool) {
+        allowance[msg.sender][usr] = wad;
+        emit Approval(msg.sender, usr, wad);
         return true;
     }
 
-    function push(address dst, uint wad) external {
-        transferFrom(msg.sender, dst, wad);
+    // --- Alias ---
+    function push(address usr, uint wad) external {
+        transferFrom(msg.sender, usr, wad);
     }
-
-    function pull(address src, uint wad) external {
-        transferFrom(src, msg.sender, wad);
+    function pull(address usr, uint wad) external {
+        transferFrom(usr, msg.sender, wad);
     }
-
     function move(address src, address dst, uint wad) external {
         transferFrom(src, dst, wad);
     }
 
+    // --- Approve by signature ---
+    function permit(address holder, address spender, uint256 nonce, uint256 expiry,
+                    bool allowed, uint8 v, bytes32 r, bytes32 s) external
+    {
+        bytes32 digest =
+            keccak256(abi.encodePacked(
+                "\x19\x01",
+                DOMAIN_SEPARATOR,
+                keccak256(abi.encode(PERMIT_TYPEHASH,
+                                     holder,
+                                     spender,
+                                     nonce,
+                                     expiry,
+                                     allowed))
+        ));
 
-    function mint(uint wad) external {
-        mint(msg.sender, wad);
-    }
-
-    function burn(uint wad) external {
-        burn(msg.sender, wad);
-    }
-
-    function mint(address guy, uint wad) public auth stoppable {
-        balanceOf[guy] = add(balanceOf[guy], wad);
-        totalSupply = add(totalSupply, wad);
-        emit Mint(guy, wad);
-    }
-
-    function burn(address guy, uint wad) public auth stoppable {
-        if (guy != msg.sender && allowance[guy][msg.sender] != uint(-1)) {
-            require(allowance[guy][msg.sender] >= wad, "ds-token-insufficient-approval");
-            allowance[guy][msg.sender] = sub(allowance[guy][msg.sender], wad);
-        }
-
-        require(balanceOf[guy] >= wad, "ds-token-insufficient-balance");
-        balanceOf[guy] = sub(balanceOf[guy], wad);
-        totalSupply = sub(totalSupply, wad);
-        emit Burn(guy, wad);
-    }
-
-    function stop() public auth {
-        stopped = true;
-        emit Stop();
-    }
-
-    function start() public auth {
-        stopped = false;
-        emit Start();
-    }
-
-    function setName(bytes32 name_) external auth {
-        name = name_;
+        require(holder != address(0), "StableCoin/invalid-address-0");
+        require(holder == ecrecover(digest, v, r, s), "StableCoin/invalid-permit");
+        require(expiry == 0 || now <= expiry, "StableCoin/permit-expired");
+        require(nonce == nonces[holder]++, "StableCoin/invalid-nonce");
+        uint wad = allowed ? uint(-1) : 0;
+        allowance[holder][spender] = wad;
+        emit Approval(holder, spender, wad);
     }
 }
